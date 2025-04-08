@@ -1,0 +1,43 @@
+- Cada cuanto reuniones?
+- Como comparto el codigo? Repositorio? Voy enviando zips?
+- Cuantos modelos? Algún modelo en específico?
+	Modelos:
+	- CTGAN: (GAN) x
+		Paper: https://arxiv.org/abs/1907.00503
+		Código: https://github.com/sdv-dev/CTGAN
+	- TVAE: (VAE) x
+		Paper: https://arxiv.org/abs/1907.00503
+		Código: https://github.com/sdv-dev/CTGAN
+	- Copulas: (Copulas)
+		Paper: -
+		Código: https://github.com/sdv-dev/Copulas
+	- DeepEcho: (BasicGAN + PAR (Probabilistic AutoRegresive model))
+		Paper: -
+		Código: https://github.com/sdv-dev/DeepEcho
+	- TabDIFF: (Difussion)
+		Paper: https://arxiv.org/pdf/2410.20626
+		Código: https://github.com/MinkaiXu/TabDiff (aun sin subir)
+	- TabDDPM: (Difussion) x
+		Paper: https://arxiv.org/pdf/2209.15421
+		Código: https://github.com/yandex-research/tab-ddpm
+	- TabSYN: (Diffusion) x
+		Paper: https://arxiv.org/pdf/2310.09656
+		Código: https://github.com/amazon-science/tabsyn
+	- REaLTabFormer: (Transformers) x
+		Paper: https://arxiv.org/abs/2302.02041
+		Código: https://github.com/worldbank/REaLTabFormer
+
+- El trabajo escrito consta de:
+	- Presentación / como esta el state-of-the-art
+	- Funcionamiento de la libreria
+	- Experimentos con los modelos?
+
+- Como se puntúa el trabajo escrito?
+- Tengo que poner todo el código en el anexo?
+- La parte esta de GEP cuenta en la nota del TFG? Todo lo que es planificación 
+	y no trabajo en si.
+- La presentación es hablar del proyecto + hacer una demo de como va? Hacer demo con distintos notebooks para cada caso de uso
+
+
+
+- Classifier two sample test dentro de eval_stat

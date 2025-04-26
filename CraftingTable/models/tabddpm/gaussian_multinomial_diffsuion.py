@@ -595,7 +595,6 @@ class GaussianMultinomialDiffusion(torch.nn.Module):
 
         x_num = x[:, :self.num_numerical_features]
         x_cat = x[:, self.num_numerical_features:]
-        
         x_num_t = x_num
         log_x_cat_t = x_cat
         if x_num.shape[1] > 0:
@@ -609,8 +608,7 @@ class GaussianMultinomialDiffusion(torch.nn.Module):
 
         model_out = self._denoise_fn(
             x_in,
-            t,
-            **out_dict
+            t
         )
 
         model_out_num = model_out[:, :self.num_numerical_features]

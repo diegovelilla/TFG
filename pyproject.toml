@@ -1,0 +1,32 @@
+[project]
+name = "CraftingTable"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Diego Velilla",email = "diego.velilla@estudiantat.ucp.edu"}
+]
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.group.dev.dependencies]
+notebook = "^7.3.3"
+ipykernel = "^6.29.5"
+numpy = "^2.2.4"
+scikit-learn = "^1.6.1"
+ctgan = "^0.11.0"
+seaborn = "^0.13.2"
+torch = { version = "^2.6.0", source = "pytorch" }
+
+[[tool.poetry.source]]
+name = "pypi"
+
+[[tool.poetry.source]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu118"

@@ -37,17 +37,6 @@ def timestep_embedding(timesteps, dim, max_period=10000):
         embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
     return embedding
 
-def _is_glu_activation(activation: ModuleType):
-    return (
-        isinstance(activation, str)
-        and activation.endswith('GLU')
-        or activation in [ReGLU, GEGLU]
-    )
-
-
-def _all_or_none(values):
-    assert all(x is None for x in values) or all(x is not None for x in values)
-
 def reglu(x: Tensor) -> Tensor:
     """The ReGLU activation function from [1].
     References:
@@ -444,18 +433,14 @@ class MLPDiffusion(nn.Module):
         return self.mlp(x)
 
 class ResNetDiffusion(nn.Module):
-    def __init__(self, d_in, num_classes, rtdl_params, dim_t = 256):
+    def __init__(self, d_in, rtdl_params, dim_t = 256):
         super().__init__()
         self.dim_t = dim_t
-        self.num_classes = num_classes
-
+        self.d_in = d_in
+        self.d_out = d_in
         rtdl_params['d_in'] = d_in
         rtdl_params['d_out'] = d_in
-        rtdl_params['emb_d'] = dim_t
         self.resnet = ResNet.make_baseline(**rtdl_params)
-
-        if self.num_classes > 0:
-            self.label_emb = nn.Embedding(self.num_classes, dim_t)
         
         self.time_embed = nn.Sequential(
             nn.Linear(dim_t, dim_t),
@@ -463,8 +448,9 @@ class ResNetDiffusion(nn.Module):
             nn.Linear(dim_t, dim_t)
         )
     
-    def forward(self, x, timesteps, y=None):
+    def forward(self, x, timesteps):
+        device = x.device
         emb = self.time_embed(timestep_embedding(timesteps, self.dim_t))
-        if y is not None and self.num_classes > 0:
-            emb += self.label_emb(y.squeeze())
-        return self.resnet(x, emb)
+        proj = nn.Linear(self.dim_t, self.d_in).to(device)
+        x += proj(emb)
+        return self.resnet(x)

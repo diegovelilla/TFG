@@ -126,11 +126,14 @@ def log_categorical(log_x_start, log_prob):
 def index_to_log_onehot(x, num_classes):
     onehots = []
     for i in range(len(num_classes)):
-        onehots.append(F.one_hot(x[:, i], num_classes[i]))
+        if num_classes[i] > 0:
+            onehots.append(F.one_hot(x[:, i], num_classes[i]))
  
-    x_onehot = torch.cat(onehots, dim=1)
-    log_onehot = torch.log(x_onehot.float().clamp(min=1e-30))
-    return log_onehot
+    if onehots:
+        x_onehot = torch.cat(onehots, dim=1)
+        return torch.log(x_onehot.float().clamp(min=1e-30))
+    else:
+        return torch.tensor([]).to(x.device)
 
 def log_sum_exp_by_classes(x, slices):
     device = x.device

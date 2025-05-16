@@ -44,38 +44,12 @@ class TVAE(parentTVAE, BaseModel):
         
         self._device = self.device
 
-        if self.metadata["table"]["columns"] == {}:
-            for column in train_data.columns:
-                if column in self.cont_columns:
-                    """
-                    Dont get null data for metadata bc will be treated inside fit function.
-                    """
-                    column_dict = {
-                        "dtype": str(train_data[column].dtype),
-                        "max": np.max(train_data[column]).item(),
-                        "min": np.min(train_data[column]).item(),
-                        "avg": np.average(train_data[column]).item(),
-                        "std": np.std(train_data[column]).item(),
-                        "median": np.median(train_data[column]).item(),
-                    }
-                else:
-                    column_dict = {
-                        "dtype": str(train_data[column].dtype),
-                        "mode": train_data[column].mode().iloc[0],
-                        "nunique": train_data[column].nunique(),
-                        "value_counts": train_data[column].value_counts().to_dict(),
-                    }
-                self.metadata["table"]["columns"][column] = column_dict
-
-        if self.metadata["table"]["correlations"] == {}:
-            self.metadata["table"]["correlations"] = train_data[self.cont_columns].corr().to_dict()
+        self._create_table_metadata(data=train_data)
 
         pre_time = datetime.now()
         self.epochs = epochs
 
-        self.transformer = DataTransformer()
-        self.transformer.fit(train_data, discrete_columns)
-        train_data = self.transformer.transform(train_data)
+        train_data = self._transform_data(data=train_data, discrete_columns=discrete_columns)
         dataset = TensorDataset(torch.from_numpy(train_data.astype('float32')).to(self.device))
         loader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True, drop_last=False)
 
@@ -140,9 +114,14 @@ class TVAE(parentTVAE, BaseModel):
         fit_duration = post_time - pre_time
 
         fit_dict = {
-                "Time_of_fit": pre_time.strftime("%Y-%m-%d %H:%M:%S"),
-                "Fit_duration": str(fit_duration).split('.')[0],
-                "Loss": self.loss_values
+                "time_of_fit": pre_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "duration": str(fit_duration).split('.')[0],
+                "hyperparameters": {"batch_size": batch_size,
+                                    "epochs": epochs,
+                                    "device": self.device,
+                                    "l2_scale": l2scale,
+                                    "loss_factor": loss_factor},
+                "loss": self.loss_values
         }
 
         self.metadata["model"]["fit_settings"]["times_fitted"] += 1

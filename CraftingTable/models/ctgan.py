@@ -28,41 +28,27 @@ class CTGAN(parentCTGAN, BaseModel):
                          batch_size, discriminator_steps, log_frequency, verbose, 
                          epochs, pac, cuda)
         
-        cont_columns = list(set(train_data.columns) - set(discrete_columns))
+        self.cont_columns = list(set(train_data.columns) - set(discrete_columns))
 
-        if self.metadata["table"]["columns"] == {}:
-            for column in train_data.columns:
-                if column in cont_columns:
-                    column_dict = {
-                        "dtype": str(train_data[column].dtype),
-                        "max": np.max(train_data[column]).item(),
-                        "min": np.min(train_data[column]).item(),
-                        "avg": np.average(train_data[column]).item(),
-                        "std": np.std(train_data[column]).item(),
-                        "median": np.median(train_data[column]).item(),
-                    }
-                else:
-                    column_dict = {
-                        "dtype": str(train_data[column].dtype),
-                        "mode": train_data[column].mode().iloc[0],
-                        "nunique": train_data[column].nunique(),
-                        "value_counts": train_data[column].value_counts().to_dict(),
-                    }
-                self.metadata["table"]["columns"][column] = column_dict
-
-        if self.metadata["table"]["correlations"] == {}:
-            self.metadata["table"]["correlations"] = train_data[cont_columns].corr().to_dict()
+        self._create_table_metadata(data=train_data)
 
         pre_time = datetime.now()
         parentCTGAN.fit(self, train_data, discrete_columns=discrete_columns, epochs=epochs)
         post_time = datetime.now()
 
         fit_duration = post_time - pre_time
-
         fit_dict = {
-                "Time_of_fit": pre_time.strftime("%Y-%m-%d %H:%M:%S"),
-                "Fit_duration": str(fit_duration).split('.')[0],
-                "Loss": self.loss_values
+                "time_of_fit": pre_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "duration": str(fit_duration).split('.')[0],
+                "hyperparameters": {"device": self.device,
+                                    "epochs": epochs,
+                                    "batch_size": batch_size,
+                                    "generator_lr": generator_lr,
+                                    "generator_decay": generator_decay,
+                                    "discriminator_lr": discriminator_lr,
+                                    "discriminator_decay": discriminator_decay,
+                                    "discriminator_steps": discriminator_steps},
+                "loss": self.loss_values
         }
 
         self.metadata["model"]["fit_settings"]["times_fitted"] += 1

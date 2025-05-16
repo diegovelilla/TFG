@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
-from ctgan.data_transformer import DataTransformer
 from .tabddpm.utils_train import get_model
 from .tabddpm.gaussian_multinomial_diffsuion import GaussianMultinomialDiffusion
 from .tabddpm.train import Trainer
@@ -60,13 +59,8 @@ class TabDDPM_ResNet(BaseModel):
         val_size: float = 0.15,
         seed: int = 42
     ):
-        transformer = DataTransformer()
-        transformer.fit(data_input, discrete_columns)
-        self.transformer = transformer
+        data_transformed = self._transform_data(data_input, discrete_columns)
 
-        data_transformed = transformer.transform(data_input)
-
-        # Then split the transformed data
         train_df, temp_df = train_test_split(
             data_transformed, test_size=(test_size + val_size), random_state=seed
         )
@@ -85,7 +79,7 @@ class TabDDPM_ResNet(BaseModel):
             "train": train_dataset,
             "val": val_dataset,
             "test": test_dataset,
-            "transformer": transformer
+            "transformer": self.transformer
         }
     
     def fit(
@@ -123,29 +117,7 @@ class TabDDPM_ResNet(BaseModel):
         self.discrete_columns = discrete_columns
         self.cont_columns = list(set(train_data.columns) - set(discrete_columns))
 
-        if self.metadata["table"]["columns"] == {}:
-            for column in train_data.columns:
-                if column in self.cont_columns:
-                    column_dict = {
-                        "dtype": str(train_data[column].dtype),
-                        "max": np.max(train_data[column]).item(),
-                        "min": np.min(train_data[column]).item(),
-                        "avg": np.average(train_data[column]).item(),
-                        "std": np.std(train_data[column]).item(),
-                        "median": np.median(train_data[column]).item(),
-                    }
-                else:
-                    column_dict = {
-                        "dtype": str(train_data[column].dtype),
-                        "mode": train_data[column].mode().iloc[0],
-                        "nunique": train_data[column].nunique(),
-                        "value_counts": train_data[column].value_counts().to_dict(),
-                    }
-                self.metadata["table"]["columns"][column] = column_dict
-
-
-        if self.metadata["table"]["correlations"] == {}:
-            self.metadata["table"]["correlations"] = train_data[self.cont_columns].corr().to_dict()
+        self._create_table_metadata(data=train_data)
 
         self.num_trans_features = dataset_dict['train'][0][0].shape[0]
         self.transformation = dataset_dict['transformer']
@@ -173,9 +145,15 @@ class TabDDPM_ResNet(BaseModel):
         loss_history['Step'] = loss_history.pop("step")
         fit_duration = post_time - pre_time
         fit_dict = {
-                "Time_of_fit": pre_time.strftime("%Y-%m-%d %H:%M:%S"),
-                "Fit_duration": str(fit_duration).split('.')[0],
-                "Loss": loss_history
+                "time_of_fit": pre_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "duration": str(fit_duration).split('.')[0],
+                "hyperparameters": {"device": device,
+                                    "steps": steps,
+                                    "lr": lr,
+                                    "weight_decay": weight_decay,
+                                    "batch_size": batch_size,
+                                    "num_timesteps": num_timesteps},
+                "loss": loss_history
         }
         self.metadata["model"]["fit_settings"]["times_fitted"] += 1
         self.metadata["model"]["fit_settings"]["fit_history"].append(fit_dict)

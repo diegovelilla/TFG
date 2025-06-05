@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 from ctgan.data_transformer import DataTransformer
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
-from sklearn.preprocessing import OneHotEncoder
+from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 from sklearn.model_selection import train_test_split
 from scipy.spatial.distance import mahalanobis, cdist
 from scipy.stats import ks_2samp, wasserstein_distance
@@ -67,74 +67,102 @@ class BaseModel(ABC):
             raise ValueError("The provided model is not a regressor, but task='regression' was specified.")
 
         df = real_data.copy()
-        oh_encoder = None
-        if (target_name in self.discrete_columns
-            and not np.issubdtype(df[target_name].dtype, np.number)):
-            oh_encoder = OneHotEncoder()
-            df[target_name] = oh_encoder.fit_transform(df[target_name])
 
-        real_y = df[target_name].values
-        real_X = df.drop(columns=[target_name])
+        # Separate target and features
+        y = df[target_name]
+        X = df.drop(columns=[target_name])
 
-        cat_cols = [c for c in self.discrete_columns if c != target_name and c in real_X]
+        # One-hot encode categorical features
+        cat_cols = [col for col in self.discrete_columns if col != target_name and col in X.columns]
+        X_encoded = pd.get_dummies(X, columns=cat_cols)
 
-        real_ohe = pd.get_dummies(real_X, columns=cat_cols)
+        # Label encode target if it's non-numeric
+        if not pd.api.types.is_numeric_dtype(y):
+            label_encoder = LabelEncoder()
+            y_encoded = label_encoder.fit_transform(y)
+        else:
+            label_encoder = None
+            y_encoded = y.values
 
+        # Handle fake data
         if fake_data is None:
-            fake_data = self.sample(len(real_ohe))
+            fake_data = self.sample(len(X_encoded))
+
         fake_df = fake_data.copy()
-        if oh_encoder is not None:
-            fake_df[target_name] = oh_encoder.transform(fake_df[target_name])
-        fake_y = fake_df[target_name].values
+        fake_y = fake_df[target_name]
         fake_X = fake_df.drop(columns=[target_name])
-        fake_ohe = pd.get_dummies(fake_X, columns=cat_cols)
 
-        all_cols = real_ohe.columns.union(fake_ohe.columns)
-        real_ohe = real_ohe.reindex(columns=all_cols, fill_value=0)
-        fake_ohe = fake_ohe.reindex(columns=all_cols, fill_value=0)
+        # One-hot encode fake features with the same columns
+        fake_X_encoded = pd.get_dummies(fake_X, columns=cat_cols)
 
+        # Align real and fake feature columns
+        all_cols = X_encoded.columns.union(fake_X_encoded.columns)
+        X_encoded = X_encoded.reindex(columns=all_cols, fill_value=0)
+        fake_X_encoded = fake_X_encoded.reindex(columns=all_cols, fill_value=0)
+
+        # Encode fake target using the same label encoder
+        if label_encoder is not None:
+            fake_y_encoded = label_encoder.transform(fake_y)
+        else:
+            fake_y_encoded = fake_y.values
+
+        # Train/test split on real data
         X_train_real, X_test_real, y_train_real, y_test_real = train_test_split(
-            real_ohe.values,
-            real_y,
+            X_encoded.values,
+            y_encoded,
             test_size=test_size,
-            stratify=(real_y if task=="classification" else None),
+            stratify=(y_encoded if task == "classification" else None),
         )
 
-        X_train_fake, y_train_fake = fake_ohe.values, fake_y
+        X_train_fake = fake_X_encoded.values
+        y_train_fake = fake_y_encoded
 
+        # Train model on real data
         model.fit(X_train_real, y_train_real)
         y_pred_real = model.predict(X_test_real)
 
+        # Train model on fake data
         model.fit(X_train_fake, y_train_fake)
         y_pred_fake = model.predict(X_test_real)
-        
+
+        # Evaluate using provided metrics
         metric_results = {"real": {}, "fake": {}}
         for metric in metrics:
             if metric in eval_metrics[task]:
                 if metric == "classification_report":
-
-                    metric_results["real"][metric] = pd.DataFrame(eval_metrics[task][metric](y_test_real, y_pred_real, output_dict=True, zero_division=0)).T
-                    metric_results["fake"][metric] = pd.DataFrame(eval_metrics[task][metric](y_test_real, y_pred_fake, output_dict=True, zero_division=0)).T
+                    metric_results["real"][metric] = pd.DataFrame(
+                        eval_metrics[task][metric](y_test_real, y_pred_real, output_dict=True, zero_division=0)
+                    ).T
+                    metric_results["fake"][metric] = pd.DataFrame(
+                        eval_metrics[task][metric](y_test_real, y_pred_fake, output_dict=True, zero_division=0)
+                    ).T
                 else:
                     metric_results["real"][metric] = eval_metrics[task][metric](y_test_real, y_pred_real)
                     metric_results["fake"][metric] = eval_metrics[task][metric](y_test_real, y_pred_fake)
 
         return metric_results
     
-    
 
     def eval_stat(self, real_data: pd.DataFrame, test: str, fake_data: pd.DataFrame = None, classifier=None):
-        oh_encoder = OneHotEncoder(sparse=False, handle_unknown='ignore')
+        oh_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
         real_data_encoded = real_data.copy()
-        fake_data_encoded = fake_data.copy() if fake_data is not None else None
-        real_data_encoded[self.discrete_columns] = oh_encoder.fit_transform(real_data[self.discrete_columns])
-        if fake_data is not None:
-            fake_data_encoded[self.discrete_columns] = oh_encoder.transform(fake_data[self.discrete_columns])
-        if fake_data_encoded is None:
+        real_cat_encoded = oh_encoder.fit_transform(real_data_encoded[self.discrete_columns])
+        real_cat_columns = oh_encoder.get_feature_names_out(self.discrete_columns)
+        real_data_encoded = real_data_encoded.drop(columns=self.discrete_columns).reset_index(drop=True)
+        real_data_encoded = pd.concat([real_data_encoded, pd.DataFrame(real_cat_encoded, columns=real_cat_columns)], axis=1)
+        
+        if fake_data is None:
+            print("No fake data provided, sampling from the model...")
             n = real_data_encoded.shape[0]
-            fake_data_encoded = np.array(self.transformer.transform(self.sample(n)))
-            fake_data_encoded = pd.DataFrame(fake_data_encoded, columns=real_data_encoded.columns)
+            fake_data = self.sample(n)
+            print(f"Sampled {n} rows of fake data.")
+        fake_data_encoded = fake_data.copy()
 
+        fake_cat_encoded = oh_encoder.transform(fake_data_encoded[self.discrete_columns])
+        fake_cat_columns = oh_encoder.get_feature_names_out(self.discrete_columns)
+        fake_data_encoded = fake_data_encoded.drop(columns=self.discrete_columns).reset_index(drop=True)
+        fake_data_encoded = pd.concat([fake_data_encoded, pd.DataFrame(fake_cat_encoded, columns=fake_cat_columns)], axis=1)
+    
         test_funcs = {
             "mahalanobis": self._mahalanobis_test,
             "ks": self._ks_test,
@@ -145,10 +173,10 @@ class BaseModel(ABC):
 
         if test not in test_funcs:
             raise ValueError(f"Unknown test '{test}'. Available: {list(test_funcs)}")
-
-        return test_funcs[test](real_data_encoded, fake_data_encoded, classifier)
-
-
+        if test == "two_sample_classifier":
+            return test_funcs[test](real_data_encoded, fake_data_encoded, classifier)
+        
+        return test_funcs[test](real_data_encoded, fake_data_encoded)
 
 
     ##### PRIVATE FUNCTIONS #####
@@ -187,7 +215,7 @@ class BaseModel(ABC):
         cov = np.cov(real.values, rowvar=False)
         inv_cov = np.linalg.pinv(cov)
         distance = mahalanobis(real.mean().values, fake.mean().values, inv_cov)
-        return pd.DataFrame([{'statistic': 'mahalanobis', 'value': distance.item()}])
+        return {'statistic': 'mahalanobis', 'value': distance.item()}
 
     def _ks_test(self, real: pd.DataFrame, fake: pd.DataFrame) -> pd.DataFrame:
         results = []
@@ -195,11 +223,10 @@ class BaseModel(ABC):
             stat, p_value = ks_2samp(real[col], fake[col])
             results.append({
                 'feature': col,
-                'statistic': 'ks',
                 'value': stat.item(),
                 'p_value': p_value.item()
             })
-        return pd.DataFrame(results)
+        return {'statistic': 'ks', "value": results}
 
     def _wasserstein_test(self, real: pd.DataFrame, fake: pd.DataFrame) -> pd.DataFrame:
         results = []
@@ -207,10 +234,9 @@ class BaseModel(ABC):
             dist = wasserstein_distance(real[col], fake[col])
             results.append({
                 'feature': col,
-                'statistic': 'wasserstein',
                 'value': dist
             })
-        return pd.DataFrame(results)
+        return {'statistic': 'wasserstein', "value": results}
 
 
     def _energy_distance_test(self, real: pd.DataFrame, fake: pd.DataFrame) -> pd.DataFrame:
@@ -218,13 +244,13 @@ class BaseModel(ABC):
         b = cdist(fake.values, fake.values).mean()
         c = cdist(real.values, fake.values).mean()
         energy_dist = 2 * c - a - b
-        return pd.DataFrame([{'statistic': 'energy', 'value': energy_dist}])
+        return {'statistic': 'energy', 'value': energy_dist}
 
     
     def _two_sample_classifier_test(self, real: pd.DataFrame, fake: pd.DataFrame, classifier: ClassifierMixin) -> pd.DataFrame:
         if classifier is None or not isinstance(classifier, ClassifierMixin):
             raise ValueError("A valid scikit-learn classifier instance must be provided.")
-
+        print("Running two-sample classifier test...")
         X = pd.concat([real, fake], axis=0).values
         y = np.concatenate([
             np.ones(len(real)), 
@@ -236,11 +262,11 @@ class BaseModel(ABC):
         classifier.fit(X_train, y_train)
         y_pred = classifier.predict(X_test)
 
-        accuracy = self.eval_metrics['accuracy_score'](y_test, y_pred)
-        report_text = self.eval_metrics['classification_report'](y_test, y_pred)
+        accuracy = eval_metrics['classification']['accuracy'](y_test, y_pred)
+        report_text = eval_metrics['classification']['classification_report'](y_test, y_pred)
 
-        return pd.DataFrame([{
+        return {
             'statistic': 'two_sample_classifier_accuracy',
             'value': accuracy,
             'report': report_text
-        }])
+        }

@@ -3,6 +3,7 @@ from .models.tvae import TVAE
 from .models.tabddpm_resnet import TabDDPM_ResNet
 from .models.tabddpm_mlp import TabDDPM_MLP
 from .models.real_tabformer import RealTabformer
+from .models.tabsyn import TabSyn
 
 __all__ = [
     "CTGAN",
@@ -10,4 +11,5 @@ __all__ = [
     "TabDDPM_ResNet",
     "TabDDPM_MLP",
     "RealTabformer",
+    "TabSyn"
 ]

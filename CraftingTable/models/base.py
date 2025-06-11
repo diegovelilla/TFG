@@ -1,5 +1,5 @@
 import torch
-from abc import ABC
+from abc import ABC, abstractmethod
 import pandas as pd
 import numpy as np
 from ..ct_utils import eval_metrics, eval_models
@@ -10,7 +10,7 @@ from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 from sklearn.model_selection import train_test_split
 from scipy.spatial.distance import mahalanobis, cdist
-from scipy.stats import ks_2samp, wasserstein_distance
+from scipy.stats import ks_2samp, wasserstein_distance, combine_pvalues
 
 # Base class for every other model
 class BaseModel(ABC):
@@ -39,6 +39,14 @@ class BaseModel(ABC):
                 }
             }
         }
+    
+    @abstractmethod
+    def fit(self, *args, **kwargs):
+        pass
+
+    @abstractmethod
+    def sample(self, *args, **kwargs):
+        pass
         
     def get_metadata(self):
         return self.metadata
@@ -217,16 +225,29 @@ class BaseModel(ABC):
         distance = mahalanobis(real.mean().values, fake.mean().values, inv_cov)
         return {'statistic': 'mahalanobis', 'value': distance.item()}
 
-    def _ks_test(self, real: pd.DataFrame, fake: pd.DataFrame) -> pd.DataFrame:
+    def _ks_test(self, real: pd.DataFrame, fake: pd.DataFrame) -> dict:
         results = []
+        p_values = []
+
         for col in real.columns:
             stat, p_value = ks_2samp(real[col], fake[col])
+            p_values.append(p_value)
             results.append({
                 'feature': col,
                 'value': stat.item(),
                 'p_value': p_value.item()
             })
-        return {'statistic': 'ks', "value": results}
+
+        fisher_stat, fisher_p = combine_pvalues(p_values, method='fisher')
+        return {
+            'statistic': 'ks',
+            'value': results,
+            'global': {
+                'method': 'fisher',
+                'statistic': fisher_stat.item(),
+                'p_value': fisher_p.item()
+            }
+        }
 
     def _wasserstein_test(self, real: pd.DataFrame, fake: pd.DataFrame) -> pd.DataFrame:
         results = []
@@ -240,6 +261,7 @@ class BaseModel(ABC):
 
 
     def _energy_distance_test(self, real: pd.DataFrame, fake: pd.DataFrame) -> pd.DataFrame:
+        print(fake.shape, real.shape)
         a = cdist(real.values, real.values).mean()
         b = cdist(fake.values, fake.values).mean()
         c = cdist(real.values, fake.values).mean()
@@ -250,7 +272,6 @@ class BaseModel(ABC):
     def _two_sample_classifier_test(self, real: pd.DataFrame, fake: pd.DataFrame, classifier: ClassifierMixin) -> pd.DataFrame:
         if classifier is None or not isinstance(classifier, ClassifierMixin):
             raise ValueError("A valid scikit-learn classifier instance must be provided.")
-        print("Running two-sample classifier test...")
         X = pd.concat([real, fake], axis=0).values
         y = np.concatenate([
             np.ones(len(real)), 

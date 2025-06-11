@@ -102,7 +102,8 @@ class TabDDPM_MLP(BaseModel):
         self.rtdl_params['d_in'] = self.d_in
         self.rtdl_params['d_out'] = self.d_out
         model_params = {
-            "rtdl_params": self.rtdl_params
+            "rtdl_params": self.rtdl_params,
+            "dim_t": self.dim_t
         }
         self.model = get_model(model_name="mlp", model_params=model_params)
         self.model.to(device)

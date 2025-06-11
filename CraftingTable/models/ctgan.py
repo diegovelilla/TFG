@@ -20,8 +20,8 @@ class CTGAN(parentCTGAN, BaseModel):
 
     def fit(self, train_data, discrete_columns, generator_lr=2e-4, generator_decay=1e-6, 
             discriminator_lr=2e-4, discriminator_decay=1e-6, batch_size=500, discriminator_steps=1, 
-            log_frequency=True, verbose=True, epochs=300, pac=10, cuda=True):
-        
+            log_frequency=True, verbose=True, epochs=300, pac=10, device='cuda'):
+        cuda = device == 'cuda'
         self.discrete_columns = discrete_columns
         parentCTGAN.__init__(self, self.embedding_dim, self.generator_dim, self.discriminator_dim, generator_lr,
                          generator_decay, discriminator_lr, discriminator_decay, 
@@ -40,7 +40,7 @@ class CTGAN(parentCTGAN, BaseModel):
         fit_dict = {
                 "time_of_fit": pre_time.strftime("%Y-%m-%d %H:%M:%S"),
                 "duration": str(fit_duration).split('.')[0],
-                "hyperparameters": {"device": self.device,
+                "hyperparameters": {"device": device,
                                     "epochs": epochs,
                                     "batch_size": batch_size,
                                     "generator_lr": generator_lr,

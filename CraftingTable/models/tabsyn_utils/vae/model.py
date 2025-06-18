@@ -12,7 +12,7 @@ class Tokenizer(nn.Module):
 
     def __init__(self, d_numerical, categories, d_token, bias):
         super().__init__()
-        if categories is None:
+        if not categories:
             d_bias = d_numerical
             self.category_offsets = None
             self.category_embeddings = None

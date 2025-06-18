@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import os
 import pandas as pd
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
@@ -9,8 +10,9 @@ from .tabddpm.gaussian_multinomial_diffsuion import GaussianMultinomialDiffusion
 from .tabddpm.train import Trainer
 from .base import BaseModel
 from datetime import datetime
+from torch.cuda import is_available
     
-class TabDDPM_MLP(BaseModel):
+class TabDDPM(BaseModel):
     
     def __init__(
         self, 
@@ -29,15 +31,12 @@ class TabDDPM_MLP(BaseModel):
             "dropout": dropout,
         }
         self.metadata['model']['model_type'] = "TabDDPM_MLP"
-        self.metadata['model']['hyperparmeters'] = {"d_in": None, 
-                                                    "d_out": None, 
-                                                    "dim_t": dim_t,
+        self.metadata['model']['hyperparmeters'] = {"dim_t": dim_t,
                                                     "d_layers": d_layers,
                                                     "dropout": dropout}
 
     def __repr__(self):
-        return (f"TabDDPM_MLP(d_in={self.d_in}, d_out={self.d_out}, dim_t={self.dim_t}, "
-            f"d_layers={self.d_layers}, dropout={self.dropout})")
+        return (f"TabDDPM_MLP(dim_t={self.dim_t}, d_layers={self.d_layers}, dropout={self.dropout})")
     
     def _make_dataset(
         self,
@@ -74,7 +73,7 @@ class TabDDPM_MLP(BaseModel):
         self, 
         train_data, 
         discrete_columns, 
-        steps=1000,
+        epochs=1000,
         lr=0.005,
         weight_decay=1e-4,
         batch_size=2048,
@@ -82,8 +81,17 @@ class TabDDPM_MLP(BaseModel):
         gaussian_loss_type='mse',
         scheduler='cosine',
         device='cuda',
-        verbose=True
+        verbose=False,
+        save_final_model=False,
+        save_folder='saves'
     ):
+        if is_available() and device == 'cuda':
+            device = 'cuda'
+            if verbose:
+                print("Using CUDA for training.")
+        else:
+            device = 'cpu'
+
         dataset_dict = self._make_dataset(
             train_data,
             discrete_columns
@@ -91,14 +99,6 @@ class TabDDPM_MLP(BaseModel):
 
         self.d_in = dataset_dict['train'][0][0].shape[0]
         self.d_out = self.d_in
-        self.metadata['model']['hyperparmeters'] = {"d_in": self.d_in, 
-                                                    "d_out": self.d_out,
-                                                    "device": device,
-                                                    "steps": steps,
-                                                    "lr": lr,
-                                                    "weight_decay": weight_decay,
-                                                    "batch_size": batch_size,
-                                                    "num_timesteps": num_timesteps}
         self.rtdl_params['d_in'] = self.d_in
         self.rtdl_params['d_out'] = self.d_out
         model_params = {
@@ -130,20 +130,18 @@ class TabDDPM_MLP(BaseModel):
         )
         diffusion.to(device)
         diffusion.train()
-        trainer = Trainer(diffusion, train_loader, lr, weight_decay, steps, device)
+        trainer = Trainer(diffusion, train_loader, lr, weight_decay, epochs, device)
         pre_time = datetime.now()
         loss_history = trainer.run_loop(verbose)
         post_time = datetime.now()
-        loss_history.pop("mloss")
-        loss_history.pop("gloss")
+        loss_history['Epoch'] = loss_history.pop("step")
         loss_history['Loss'] = loss_history.pop("loss")
-        loss_history['Step'] = loss_history.pop("step")
         fit_duration = post_time - pre_time
         fit_dict = {
                 "time_of_fit": pre_time.strftime("%Y-%m-%d %H:%M:%S"),
                 "duration": str(fit_duration).split('.')[0],
-                "hyperparameters": {"device": device,
-                                    "steps": steps,
+                "parameters": {"device": device,
+                                    "epochs": epochs,
                                     "lr": lr,
                                     "weight_decay": weight_decay,
                                     "batch_size": batch_size,
@@ -152,6 +150,9 @@ class TabDDPM_MLP(BaseModel):
         }
         self.metadata["model"]["fit_settings"]["times_fitted"] += 1
         self.metadata["model"]["fit_settings"]["fit_history"].append(fit_dict)
+        if save_final_model:
+            self.save(os.path.join(save_folder), 'tabddpm.pt')
+
 
     def sample(
         self,

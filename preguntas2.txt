@@ -1,8 +1,0 @@
-1. Nota GEP?
-2. TabDDPM acabado. (solo mlp, no resnet) Primero que no tiene libreria.
-3. Classifier two sample acabado.
-4. Repo github.
-5. Que notebooks de presentación hacer?
-    - Datos UCI, y enseñar training + tests. Atributos mixtos.
-6. Futuro modelo.
-7. Ejemplos de memorias. (upc commons) -> todas las memorias escritas buscra de la fib

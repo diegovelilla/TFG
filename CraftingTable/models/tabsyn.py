@@ -4,6 +4,7 @@ import torch
 import time
 from tqdm import tqdm
 import pickle
+from datetime import datetime
 import numpy as np
 from torch.utils.data import DataLoader, TensorDataset
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -12,6 +13,8 @@ from .tabsyn_utils.vae.model import Model_VAE, Encoder_model, Decoder_model
 from .tabsyn_utils.vae.utils_train import TabularDataset
 from .tabsyn_utils.model import MLPDiffusion, Model
 from .tabsyn_utils.diffusion_utils import sample as diffusion_sample
+import pandas as pd
+from torch.cuda import is_available
 
 
 def compute_loss(X_num, Recon_X_num, mu_z, logvar_z):
@@ -26,17 +29,28 @@ class TabSyn(BaseModel):
 
     def __init__(
         self,
-        dim_t: int = 512,
+        n_head_vae: int = 1,
+        d_token_vae: int = 4,
+        factor_vae: int = 32,
+        num_layers_vae: int = 2,
+        dim_t_mlp: int = 512,
+
     ):
         super().__init__()
-        self.d_in = None
-        self.dim_t = dim_t
+        self.n_head = n_head_vae
+        self.d_token = d_token_vae
+        self.factor = factor_vae
+        self.num_layers = num_layers_vae
+        self.dim_t = dim_t_mlp
         self.metadata['model']['model_type'] = "TabSyn"
-        self.metadata['model']['hyperparmeters'] = {"d_in": None, 
-                                                    "dim_t": self.dim_t}
+        self.metadata['model']['hyperparmeters'] = {"num_layers_vae": num_layers_vae,
+                                                    "factor_vae": factor_vae,
+                                                    "n_head_vae": n_head_vae,
+                                                    "d_token_vae": d_token_vae,
+                                                    "dim_t_mlp": dim_t_mlp,}
         
     def __repr__(self):
-        return (f"TabSyn(d_in={self.d_in}, dim_t={self.dim_t})")
+        return (f"TabSyn(num_layers_vae={self.num_layers}, factor_vae={self.factor}, n_head_vae={self.n_head}, d_token_vae={self.d_token}, dim_t_mlp={self.dim_t})")
     
     def _fit_vae(
         self,
@@ -45,28 +59,30 @@ class TabSyn(BaseModel):
         batch_size=4096,
         lr=1e-3,
         weight_decay=0,
-        d_token=4,
         token_bias=True,
-        n_head=1,
-        factor=32,
-        num_layers=2,
         max_beta=1e-2,
         min_beta=1e-5,
         lambd=0.7,
         test_size=0.2,
         random_state=42,
         device='cuda',
-        verbose = True
+        verbose = False,
+        save_final_model=False,
+        save_folder='saves'
     ):
-        # Create checkpoint directory
-        curr_dir = os.path.dirname(os.path.abspath(__file__))
-        ckpt_dir = os.path.join(curr_dir, 'ckpt')
-        if not os.path.exists(ckpt_dir):
-            os.makedirs(ckpt_dir)
+        if is_available() and device == 'cuda':
+            device = 'cuda'
+            if verbose:
+                print("Using CUDA for training.")
+        else:
+            device = 'cpu'
 
-        model_save_path = os.path.join(ckpt_dir, 'vae_model.pt')
-        encoder_save_path = os.path.join(ckpt_dir, 'encoder.pt')
-        decoder_save_path = os.path.join(ckpt_dir, 'decoder.pt')
+        if not os.path.exists(save_folder):
+            os.makedirs(save_folder)
+
+        model_save_path = os.path.join(save_folder, 'vae_model.pt')
+        encoder_save_path = os.path.join(save_folder, 'encoder.pt')
+        decoder_save_path = os.path.join(save_folder, 'decoder.pt')
 
         # Transform data using the provided transformer
         
@@ -95,31 +111,31 @@ class TabSyn(BaseModel):
 
         # Instantiate models
         model = Model_VAE(
-            num_layers,
+            self.num_layers,
             d_numerical,
             categories,
-            d_token,
-            n_head=n_head,
-            factor=factor,
+            self.d_token,
+            n_head=self.n_head,
+            factor=self.factor,
             bias=token_bias,
         ).to(device)
 
         pre_encoder = Encoder_model(
-            num_layers,
+            self.num_layers,
             d_numerical,
             categories,
-            d_token,
-            n_head=n_head,
-            factor=factor,
+            self.d_token,
+            n_head=self.n_head,
+            factor=self.factor,
         ).to(device)
 
         pre_decoder = Decoder_model(
-            num_layers,
+            self.num_layers,
             d_numerical,
             categories,
-            d_token,
-            n_head=n_head,
-            factor=factor,
+            self.d_token,
+            n_head=self.n_head,
+            factor=self.factor,
         ).to(device)
 
         pre_encoder.eval()
@@ -130,7 +146,7 @@ class TabSyn(BaseModel):
             model.parameters(), lr=lr, weight_decay=weight_decay
         )
         scheduler = ReduceLROnPlateau(
-            optimizer, mode='min', factor=0.95, patience=10, verbose=True
+            optimizer, mode='min', factor=0.95, patience=10,
         )
 
         best_train_loss = float('inf')
@@ -138,16 +154,15 @@ class TabSyn(BaseModel):
         patience_counter = 0
         beta = max_beta
 
-        start_time = time.time()
-        for epoch in range(num_epochs):
-            pbar = tqdm(train_loader, total=len(train_loader))
-            pbar.set_description(f"Epoch {epoch+1}/{num_epochs}")
+        loss_records = []
+        pbar = tqdm(range(num_epochs))
+        for epoch in pbar:
 
             curr_loss_gauss = 0.0
             curr_loss_kl = 0.0
             curr_count = 0
 
-            for batch_num in pbar:
+            for batch_num in train_loader:
                 model.train()
                 optimizer.zero_grad()
 
@@ -162,6 +177,7 @@ class TabSyn(BaseModel):
 
                 loss = loss_mse + beta * loss_kld
                 loss.backward()
+                pbar.set_description(f"VAE Loss: {loss.item():.4f}")
                 optimizer.step()
 
                 batch_length = batch_num.shape[0]
@@ -180,15 +196,16 @@ class TabSyn(BaseModel):
                     X_test_num, Recon_X_num, mu_z, std_z
                 )
                 val_loss = val_mse_loss.item()  # mse term weighted by 0 as before
-
+                loss_records.append(val_loss)
                 scheduler.step(val_loss)
                 new_lr = optimizer.param_groups[0]['lr']
                 if new_lr != current_lr:
                     current_lr = new_lr
-                    print(f"Learning rate updated: {current_lr}")
+                    if verbose:
+                        print(f"Learning rate updated: {current_lr}")
 
                 # Save best model
-                if val_loss < best_train_loss:
+                if save_final_model and val_loss < best_train_loss:
                     best_train_loss = val_loss
                     patience_counter = 0
                     torch.save(model.state_dict(), model_save_path)
@@ -198,14 +215,6 @@ class TabSyn(BaseModel):
                         beta *= lambd
                         patience_counter = 0
 
-            print(
-                f"epoch: {epoch}, beta = {beta:.6f}, Train MSE: {num_loss:.6f}, "
-                f"Val MSE: {val_mse_loss.item():.6f}"
-            )
-
-        end_time = time.time()
-        print(f"Training time: {(end_time - start_time)/60:.4f} mins")
-
         # Saving latent embeddings
         with torch.no_grad():
             # pre_encoder.load_state_dict(model.encoder.state_dict())
@@ -213,19 +222,30 @@ class TabSyn(BaseModel):
             pre_encoder.load_weights(model)
             pre_decoder.load_weights(model)
 
-            torch.save(pre_encoder.state_dict(), encoder_save_path)
-            torch.save(pre_decoder.state_dict(), decoder_save_path)
+            if save_final_model:
+                torch.save(pre_encoder.state_dict(), encoder_save_path)
+                torch.save(pre_decoder.state_dict(), decoder_save_path)
 
             X_train_num = X_train_num.to(device)
             # X_train_cat = X_train_cat.to(device)
 
-            print('Successfully loaded and saved the model!')
-
             train_z = pre_encoder(X_train_num, None).detach().cpu().numpy()
-            np.save(os.path.join(ckpt_dir, 'train_z.npy'), train_z)
-            print('Successfully saved pretrained embeddings to disk!')
-            z_path = os.path.join(ckpt_dir, 'train_z.npy')
-            return z_path
+            np.save(os.path.join(save_folder, 'train_z.npy'), train_z)
+            if verbose:
+                print('Successfully saved pretrained embeddings to disk!')
+            z_path = os.path.join(save_folder, 'train_z.npy')
+            train_z = torch.tensor(train_z).float()
+            train_z = train_z[:, 1:, :]
+            B, num_tokens, token_dim = train_z.size()
+            in_dim = num_tokens * token_dim
+            train_z = train_z.view(B, in_dim)
+            self.in_dim = train_z.shape[1] 
+            self.mean = train_z.mean(0)
+            loss_df = pd.DataFrame({
+                'Epoch': list(range(0, len(loss_records))),
+                'Vae Loss': loss_records
+            })
+            return z_path, loss_df
         
 
     def _fit_MLP(
@@ -233,18 +253,22 @@ class TabSyn(BaseModel):
         z_path,
         batch_size=4096,
         num_epochs=500,
-        lr=1e-3,
         weight_decay=0,
+        lr=1e-3,
         device='cuda',
-        ckpt_path='ckpt',
-        verbose=True
+        verbose=False,
+        save_final_model=False,
+        save_folder='saves'
     ):
-
-        curr_dir = os.path.dirname(os.path.abspath(__file__))
-        ckpt_dir = os.path.join(curr_dir, 'ckpt')
-
-        if not os.path.exists(ckpt_path):
-            os.makedirs(ckpt_path)
+        if is_available() and device == 'cuda':
+            device = 'cuda'
+            if verbose:
+                print("Using CUDA for training.")
+        else:
+            device = 'cpu'
+            
+        if not os.path.exists(save_folder):
+            os.makedirs(save_folder)
 
         train_z = torch.tensor(np.load(z_path)).float()
         train_z = train_z[:, 1:, :]
@@ -267,31 +291,30 @@ class TabSyn(BaseModel):
             num_workers = 4,
         )
 
-        denoise_fn = MLPDiffusion(in_dim, 512).to(device)
+        self.denoise_fn = MLPDiffusion(in_dim, self.dim_t).to(device)
 
-        num_params = sum(p.numel() for p in denoise_fn.parameters())
-        print("the number of parameters", num_params)
+        num_params = sum(p.numel() for p in self.denoise_fn.parameters())
+        if verbose:
+            print("the number of parameters", num_params)
 
-        model = Model(denoise_fn = denoise_fn, hid_dim = train_z.shape[1]).to(device)
+        self.model = Model(denoise_fn = self.denoise_fn, hid_dim = train_z.shape[1]).to(device)
 
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
-        scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.9, patience=20, verbose=True)
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, weight_decay=weight_decay)
+        scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.9, patience=20)
 
-        model.train()
+        self.model.train()
 
+        loss_records = []
         best_loss = float('inf')
         patience = 0
-        start_time = time.time()
-        for epoch in range(num_epochs):
+        pbar = tqdm(range(num_epochs))
+        for epoch in pbar:
             
-            pbar = tqdm(train_loader, total=len(train_loader))
-            pbar.set_description(f"Epoch {epoch+1}/{num_epochs}")
-
             batch_loss = 0.0
             len_input = 0
-            for (batch,) in pbar:
+            for (batch,) in train_loader:
                 inputs = batch.float().to(device)
-                loss = model(inputs)
+                loss = self.model(inputs)
             
                 loss = loss.mean()
                 batch_loss += loss.item() * len(inputs)
@@ -301,49 +324,49 @@ class TabSyn(BaseModel):
                 loss.backward()
                 optimizer.step()
 
-                pbar.set_postfix({"Loss": loss.item()})
+                pbar.set_description(f"MLP Loss: {loss.item():.4f}")
 
             curr_loss = batch_loss/len_input
             scheduler.step(curr_loss)
-
-            if curr_loss < best_loss:
-                print("hola")
+            loss_records.append(curr_loss)
+            if save_final_model and curr_loss < best_loss:
                 best_loss = curr_loss
                 patience = 0
-                torch.save(model.state_dict(), f'{ckpt_dir}/diffusion_model.pt')
+                torch.save(self.model.state_dict(), f'{save_folder}/diffusion_model.pt')
             else:
                 patience += 1
                 if patience == 500:
                     print('Early stopping')
                     break
 
-            if epoch % 1000 == 0:
-                torch.save(model.state_dict(), f'{ckpt_dir}/diffusion_model_{epoch}.pt')
+            if epoch % 1000 == 0 and save_final_model:
+                torch.save(self.model.state_dict(), f'{save_folder}/diffusion_model_{epoch}.pt')
 
-        end_time = time.time()
-        print('Time: ', end_time - start_time)
+        loss_df = pd.DataFrame({
+                'Epoch': list(range(0, len(loss_records))),
+                'MLP Loss': loss_records
+            })
+        return loss_df
 
     def fit(
         self,
         train_data,
         discrete_columns,
         vae_epochs=800,
-        diffusion_steps=500,
+        mlp_epochs=500,
         batch_size=4096,
-        lr=1e-3,
         weight_decay=0,
-        d_token=4,
+        lr=1e-3,
         token_bias=True,
-        n_head=1,
-        factor=32,
-        num_layers=2,
         max_beta=1e-2,
         min_beta=1e-5,
         lambd=0.7,
         test_size=0.2,
         random_state=42,
         device='cuda',
-        verbose=True
+        verbose=False,
+        save_final_model=False,
+        save_folder='saves'
     ):
         self.discrete_columns = discrete_columns
         self.cont_columns = list(set(train_data.columns) - set(discrete_columns))
@@ -351,70 +374,87 @@ class TabSyn(BaseModel):
         # with open("ckpt/transformations.pkl", "wb") as f:
         #     pickle.dump(self.transformer, f)
         self._create_table_metadata(data=train_data)
-        z_path = self._fit_vae(
+        pre_time_vae = datetime.now()
+        z_path, vae_loss = self._fit_vae(
             X_num = X_num,
             num_epochs=vae_epochs,
             batch_size=batch_size,
             lr=lr,
             weight_decay=weight_decay,
-            d_token=d_token,
             token_bias=token_bias,
-            n_head=n_head,
-            factor=factor,
-            num_layers=num_layers,
             max_beta=max_beta,
             min_beta=min_beta,
             lambd=lambd,
             test_size=test_size,
             random_state=random_state,
             device=device,
-            verbose=verbose
+            verbose=verbose,
+            save_final_model=save_final_model,
+            save_folder=save_folder
         )
-        self._fit_MLP(
+        post_time_vae = datetime.now()
+        fit_time_vae = post_time_vae - pre_time_vae
+
+        pre_time_mlp = datetime.now()
+        mlp_loss = self._fit_MLP(
             z_path=z_path,
             batch_size=batch_size,
-            num_epochs=diffusion_steps,
-            lr=lr,
+            num_epochs=mlp_epochs,
             weight_decay=weight_decay,
+            lr=lr,
             device=device,
-            ckpt_path='ckpt',
-            verbose=verbose
+            verbose=verbose,
+            save_final_model=save_final_model,
+            save_folder=save_folder
         )
+        post_time_mlp = datetime.now()
+        fit_time_mlp = post_time_mlp - pre_time_mlp
+        fit_dict = {
+            "time_of_fit": pre_time_vae.strftime("%Y-%m-%d %H:%M:%S"),
+            "duration": {
+                    "vae_duration": str(fit_time_vae).split('.')[0], 
+                    "mlp_duration": str(fit_time_mlp).split('.')[0]
+                },
+
+            "parameters": {
+                "device": device,
+                "vae_epochs": vae_epochs,
+                "mlp_epochs": mlp_epochs,
+                "batch_size": batch_size,
+                "lr": lr,
+                "max_beta": max_beta,
+                "min_beta": min_beta,
+                "lambda": lambd,
+                "weight_decay": weight_decay},
+
+            "loss": {
+                "vae_loss": vae_loss,
+                "mlp_loss": mlp_loss
+            }
+        }
+
+        self.metadata["model"]["fit_settings"]["times_fitted"] += 1
+        self.metadata["model"]["fit_settings"]["fit_history"].append(fit_dict)
 
     def sample(
         self,
         num_samples,
         device='cuda',
     ):
-        curr_dir = os.path.dirname(os.path.abspath(__file__))
-        ckpt_path = f'{curr_dir}/ckpt'
-        embedding_save_path = f'{curr_dir}/ckpt/train_z.npy'
-        train_z = torch.tensor(np.load(embedding_save_path)).float()
-
-        train_z = train_z[:, 1:, :]
-        B, num_tokens, token_dim = train_z.size()
-        in_dim = num_tokens * token_dim
-        
-        train_z = train_z.view(B, in_dim)
-        in_dim = train_z.shape[1] 
-
-        mean = train_z.mean(0)
-
-        denoise_fn = MLPDiffusion(in_dim, 512).to(device)
-        
-        model = Model(denoise_fn = denoise_fn, hid_dim = train_z.shape[1]).to(device)
-
-        model.load_state_dict(torch.load(f'{ckpt_path}/diffusion_model.pt'))
-
+        if not self.model:
+            raise ValueError("Model is not loaded. Please load the model before sampling.")
         '''
             Generating samples    
         '''
-        start_time = time.time()
+        if is_available() and device =='cuda':
+            device = 'cuda'
+        else:
+            device = 'cpu'
 
-        sample_dim = in_dim
+        sample_dim = self.in_dim
 
-        x_next = diffusion_sample(model.denoise_fn_D, num_samples, sample_dim, device = device)
-        x_next = x_next * 2 + mean.to(device)
+        x_next = diffusion_sample(self.model.denoise_fn_D, num_samples, sample_dim, device = device)
+        x_next = x_next * 2 + self.mean.to(device)
 
         syn_data = x_next.float().cpu().numpy()
         # syn_num, syn_cat, syn_target = split_num_cat_target(syn_data, info, num_inverse, cat_inverse, args.device) 
@@ -426,7 +466,4 @@ class TabSyn(BaseModel):
 
         # syn_df.rename(columns = idx_name_mapping, inplace=True)
         syn_df = self.transformer.inverse_transform(syn_data)
-        end_time = time.time()
-        print('Time:', end_time - start_time)
         return syn_df
-

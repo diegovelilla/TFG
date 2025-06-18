@@ -1,15 +1,14 @@
 from ctgan import TVAE as parentTVAE
 from datetime import datetime
-import numpy as np
 import torch
+import os
 from torch.optim import Adam
 import pandas as pd
 from tqdm import tqdm
-from copy import deepcopy
 from torch.utils.data import DataLoader, TensorDataset
-from ctgan.data_transformer import DataTransformer
 from ctgan.synthesizers.tvae import Encoder, Decoder, _loss_function
 from .base import BaseModel
+from torch.cuda import is_available
 
 
 class TVAE(parentTVAE, BaseModel):
@@ -28,7 +27,7 @@ class TVAE(parentTVAE, BaseModel):
 
     
     def fit(self, train_data, discrete_columns, l2scale=1e-5, batch_size=500, 
-            epochs=300, loss_factor=2, cuda=True, verbose=True):
+            epochs=300, loss_factor=2, device='cuda', verbose=False, save_final_model=False, save_folder='saves'):
         self.l2scale = l2scale
         self.batch_size = batch_size
         self.epochs = epochs
@@ -37,10 +36,15 @@ class TVAE(parentTVAE, BaseModel):
         self.discrete_columns = discrete_columns
         self.cont_columns = list(set(train_data.columns) - set(discrete_columns))
         
-        if cuda:
+        if is_available() and device == 'cuda':
             self.device = 'cuda'
+            if verbose:
+                print("Using CUDA for training.")
         else:
             self.device = 'cpu'
+            if verbose:
+                print("Using CPU for training.")
+
         
         self._device = self.device
 
@@ -116,7 +120,7 @@ class TVAE(parentTVAE, BaseModel):
         fit_dict = {
                 "time_of_fit": pre_time.strftime("%Y-%m-%d %H:%M:%S"),
                 "duration": str(fit_duration).split('.')[0],
-                "hyperparameters": {"batch_size": batch_size,
+                "parameters": {"batch_size": batch_size,
                                     "epochs": epochs,
                                     "device": self.device,
                                     "l2_scale": l2scale,
@@ -126,6 +130,9 @@ class TVAE(parentTVAE, BaseModel):
 
         self.metadata["model"]["fit_settings"]["times_fitted"] += 1
         self.metadata["model"]["fit_settings"]["fit_history"].append(fit_dict)
+
+        if save_final_model:
+            self.save(os.path.join(save_folder, 'tvae.pt'))
 
     def sample(self, num_saples):
         return parentTVAE.sample(self, num_saples)

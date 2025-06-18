@@ -2,7 +2,7 @@ import torch
 from abc import ABC, abstractmethod
 import pandas as pd
 import numpy as np
-from ..ct_utils import eval_metrics, eval_models
+from ..utils import eval_metrics
 import pandas as pd
 import numpy as np
 from ctgan.data_transformer import DataTransformer
@@ -52,17 +52,13 @@ class BaseModel(ABC):
         return self.metadata
 
     def save(self, path):
-        model_data = {
-            "model": self,
-            "metadata": self.metadata
-        }
-        torch.save(model_data, path)
+        torch.save(self.__dict__, path)
 
-    def load(self, path):
-        model_data = torch.load(path, weights_only=False)
-        model = model_data['model']
-        metadata = model_data['metadata']
-        return model, metadata
+    @classmethod
+    def load(cls, path):
+        obj = cls.__new__(cls)
+        obj.__dict__.update(torch.load(path, weights_only=False))
+        return obj
     
     def eval_ml(self, real_data: pd.DataFrame, target_name: str, task: str, 
                 model: BaseEstimator, metrics: list, test_size: float = 0.3, fake_data: pd.DataFrame = None):
@@ -76,15 +72,12 @@ class BaseModel(ABC):
 
         df = real_data.copy()
 
-        # Separate target and features
         y = df[target_name]
         X = df.drop(columns=[target_name])
 
-        # One-hot encode categorical features
         cat_cols = [col for col in self.discrete_columns if col != target_name and col in X.columns]
         X_encoded = pd.get_dummies(X, columns=cat_cols)
 
-        # Label encode target if it's non-numeric
         if not pd.api.types.is_numeric_dtype(y):
             label_encoder = LabelEncoder()
             y_encoded = label_encoder.fit_transform(y)
@@ -92,7 +85,6 @@ class BaseModel(ABC):
             label_encoder = None
             y_encoded = y.values
 
-        # Handle fake data
         if fake_data is None:
             fake_data = self.sample(len(X_encoded))
 
@@ -100,21 +92,17 @@ class BaseModel(ABC):
         fake_y = fake_df[target_name]
         fake_X = fake_df.drop(columns=[target_name])
 
-        # One-hot encode fake features with the same columns
         fake_X_encoded = pd.get_dummies(fake_X, columns=cat_cols)
 
-        # Align real and fake feature columns
         all_cols = X_encoded.columns.union(fake_X_encoded.columns)
         X_encoded = X_encoded.reindex(columns=all_cols, fill_value=0)
         fake_X_encoded = fake_X_encoded.reindex(columns=all_cols, fill_value=0)
 
-        # Encode fake target using the same label encoder
         if label_encoder is not None:
             fake_y_encoded = label_encoder.transform(fake_y)
         else:
             fake_y_encoded = fake_y.values
 
-        # Train/test split on real data
         X_train_real, X_test_real, y_train_real, y_test_real = train_test_split(
             X_encoded.values,
             y_encoded,
@@ -125,15 +113,12 @@ class BaseModel(ABC):
         X_train_fake = fake_X_encoded.values
         y_train_fake = fake_y_encoded
 
-        # Train model on real data
         model.fit(X_train_real, y_train_real)
         y_pred_real = model.predict(X_test_real)
 
-        # Train model on fake data
         model.fit(X_train_fake, y_train_fake)
         y_pred_fake = model.predict(X_test_real)
 
-        # Evaluate using provided metrics
         metric_results = {"real": {}, "fake": {}}
         for metric in metrics:
             if metric in eval_metrics[task]:
@@ -214,7 +199,8 @@ class BaseModel(ABC):
                         "value_counts": data[column].value_counts().to_dict(),
                     }
                 self.metadata["table"]["columns"][column] = column_dict
-
+            self.metadata["table"]["columns"]["discrete_columns"] = self.discrete_columns
+            self.metadata["table"]["columns"]["continous_columns"] = self.cont_columns
 
         if self.metadata["table"]["correlations"] == {}:
             self.metadata["table"]["correlations"] = data[self.cont_columns].corr().to_dict()

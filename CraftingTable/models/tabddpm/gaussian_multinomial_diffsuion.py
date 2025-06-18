@@ -888,7 +888,7 @@ class GaussianMultinomialDiffusion(torch.nn.Module):
 
         out_dict = {}
         for i in reversed(range(0, self.num_timesteps)):
-            print(f'Sample timestep {i:4d}', end='\r')
+            # print(f'Sample timestep {i:4d}', end='\r')
             t = torch.full((b,), i, device=device, dtype=torch.long)
             model_out = self._denoise_fn(z_norm.float(), t)
             model_out_num = model_out[:, :self.num_numerical_features]
@@ -929,7 +929,7 @@ class GaussianMultinomialDiffusion(torch.nn.Module):
     
     def sample_all(self, num_samples, batch_size, ddim=False):
         if ddim:
-            print('Sample using DDIM.')
+            # print('Sample using DDIM.')
             sample_fn = self.sample_ddim
         else:
             sample_fn = self.sample

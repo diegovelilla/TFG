@@ -350,24 +350,29 @@ class TabSyn(BaseModel):
 
     def fit(
         self,
-        train_data,
-        discrete_columns,
-        vae_epochs=800,
-        mlp_epochs=500,
-        batch_size=4096,
-        weight_decay=0,
-        lr=1e-3,
-        token_bias=True,
-        max_beta=1e-2,
-        min_beta=1e-5,
-        lambd=0.7,
-        test_size=0.2,
-        random_state=42,
-        device='cuda',
-        verbose=False,
-        save_final_model=False,
-        save_folder='saves'
+        train_data: pd.DataFrame,
+        discrete_columns: list[str],
+        vae_epochs: int = 800,
+        mlp_epochs: int = 500,
+        batch_size: int = 4096,
+        weight_decay: float = 0,
+        lr: float = 1e-3,
+        token_bias: bool = True,
+        max_beta: float = 1e-2,
+        min_beta: float = 1e-5,
+        lambd: float = 0.7,
+        test_size: float = 0.2,
+        random_state: int = 42,
+        device: str = 'cuda',
+        verbose: bool = False,
+        save_final_model: bool = False,
+        save_folder: str = 'saves'
     ):
+        if not isinstance(train_data, pd.DataFrame):
+            raise TypeError("train_data must bea a pandas DataFrame.")
+        if not isinstance(discrete_columns, list) and all(isinstance(col, str) and col in train_data.columns for col in discrete_columns):
+            raise TypeError("discrete_columns must be a list of column names.")
+        
         self.discrete_columns = discrete_columns
         self.cont_columns = list(set(train_data.columns) - set(discrete_columns))
         X_num = self._transform_data(train_data, discrete_columns)
@@ -438,11 +443,11 @@ class TabSyn(BaseModel):
 
     def sample(
         self,
-        num_samples,
-        device='cuda',
+        num_samples: int,
+        device: str = 'cuda',
     ):
-        if not self.model:
-            raise ValueError("Model is not loaded. Please load the model before sampling.")
+        if self.metadata['model']['fit_settings']['times_fitted'] == 0:
+            raise RuntimeError("Model has not been fitted yet. Please fit the model before sampling.")
         '''
             Generating samples    
         '''

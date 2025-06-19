@@ -71,20 +71,25 @@ class TabDDPM(BaseModel):
     
     def fit(
         self, 
-        train_data, 
-        discrete_columns, 
-        epochs=1000,
-        lr=0.005,
-        weight_decay=1e-4,
-        batch_size=2048,
-        num_timesteps=1000,
-        gaussian_loss_type='mse',
-        scheduler='cosine',
-        device='cuda',
-        verbose=False,
-        save_final_model=False,
-        save_folder='saves'
+        train_data: pd.DataFrame, 
+        discrete_columns: list[str], 
+        epochs: int = 1000,
+        lr: float = 0.005,
+        weight_decay: float = 1e-4,
+        batch_size: int = 2048,
+        num_timesteps: int = 1000,
+        gaussian_loss_type: str = 'mse',
+        scheduler: str = 'cosine',
+        device: str = 'cuda',
+        verbose: bool = False,
+        save_final_model: bool = False,
+        save_folder: str = 'saves'
     ):
+        if not isinstance(train_data, pd.DataFrame):
+            raise TypeError("train_data must bea a pandas DataFrame.")
+        if not isinstance(discrete_columns, list) and all(isinstance(col, str) and col in train_data.columns for col in discrete_columns):
+            raise TypeError("discrete_columns must be a list of column names.")
+        
         if is_available() and device == 'cuda':
             device = 'cuda'
             if verbose:
@@ -156,14 +161,16 @@ class TabDDPM(BaseModel):
 
     def sample(
         self,
-        num_samples,
-        batch_size=2000,
-        num_timesteps=1000,
-        gaussian_loss_type='mse',
-        scheduler='cosine',
-        device='cuda',
-        ddim=True
+        num_samples: int,
+        batch_size: int = 2000,
+        num_timesteps: int = 1000,
+        gaussian_loss_type: str = 'mse',
+        scheduler: str = 'cosine',
+        device: str = 'cuda',
+        ddim: bool = True
     ):
+        if self.metadata['model']['fit_settings']['times_fitted'] == 0:
+            raise RuntimeError("Model has not been fitted yet. Please fit the model before sampling.")
         self.model.to(device)
         diffusion = GaussianMultinomialDiffusion(
             num_classes=np.array([0]),

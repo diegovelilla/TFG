@@ -1,11 +1,10 @@
-import torch
 from abc import ABC, abstractmethod
-import pandas as pd
-import numpy as np
 from ..utils import eval_metrics
+from ctgan.data_transformer import DataTransformer
+import torch
+import os.path
 import pandas as pd
 import numpy as np
-from ctgan.data_transformer import DataTransformer
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 from sklearn.model_selection import train_test_split
@@ -48,23 +47,37 @@ class BaseModel(ABC):
     def sample(self, *args, **kwargs):
         pass
         
-    def get_metadata(self):
+    def get_metadata(self) -> dict:
         return self.metadata
 
-    def save(self, path):
+    def save(self, path: str):
+        if not isinstance(path, str):
+            raise TypeError("Path must be a string.")
+
         torch.save(self.__dict__, path)
 
     @classmethod
-    def load(cls, path):
+    def load(cls, path) -> "BaseModel":
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"No file found at {path}")
+        
         obj = cls.__new__(cls)
         obj.__dict__.update(torch.load(path, weights_only=False))
         return obj
     
     def eval_ml(self, real_data: pd.DataFrame, target_name: str, task: str, 
-                model: BaseEstimator, metrics: list, test_size: float = 0.3, fake_data: pd.DataFrame = None):
+                model: BaseEstimator, metrics: list, test_size: float = 0.3, fake_data: pd.DataFrame = None) -> dict:
     
+        if self.metadata['model']['fit_settings']['times_fitted'] == 0:
+            raise RuntimeError("Model is not yet fitted. Please fit the model before evaluation.")
+        if not isinstance(real_data, pd.DataFrame):
+            raise TypeError("real_data must be a pandas DataFrame.")
+        if not isinstance(target_name, str):
+            raise TypeError("target_name must be a string.")
         if task != "classification" and task != "regression":
             raise ValueError("Unknown task. Please choose between 'classification'/'regression'")
+        if not isinstance(metrics, list):
+            raise TypeError("metrics must be a list of strings.")
         if task == "classification" and not isinstance(model, ClassifierMixin):
             raise ValueError("The provided model is not a classifier, but task='classification' was specified.")
         if task == "regression" and not isinstance(model, RegressorMixin):
@@ -136,7 +149,27 @@ class BaseModel(ABC):
         return metric_results
     
 
-    def eval_stat(self, real_data: pd.DataFrame, test: str, fake_data: pd.DataFrame = None, classifier=None):
+    def eval_stat(self, real_data: pd.DataFrame, test: str, fake_data: pd.DataFrame = None, classifier=None) -> dict:
+        test_funcs = {
+            "mahalanobis": self._mahalanobis_test,
+            "ks": self._ks_test,
+            "wasserstein_distance": self._wasserstein_test,
+            "energy_distance": self._energy_distance_test,
+            "two_sample_classifier": self._two_sample_classifier_test,
+        }
+
+        if test not in test_funcs:
+            raise ValueError(f"Unknown test '{test}'. Available: {list(test_funcs)}")
+        if test != "two_sample_classifier":
+            if classifier is None or not isinstance(classifier, ClassifierMixin):
+                raise ValueError("A valid scikit-learn classifier instance must be provided.")
+        if not isinstance(real_data, pd.DataFrame):
+            raise TypeError("real must be a pandas DataFrame.")
+        if not fake_data and not isinstance(fake_data, pd.DataFrame):
+            raise TypeError("fake must be a pandas DataFrame.")
+        if real_data.shape[1] != fake_data.shape[1]:
+            raise ValueError("Real and fake datasets must have the same number of features.")
+            
         oh_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
         real_data_encoded = real_data.copy()
         real_cat_encoded = oh_encoder.fit_transform(real_data_encoded[self.discrete_columns])
@@ -156,16 +189,6 @@ class BaseModel(ABC):
         fake_data_encoded = fake_data_encoded.drop(columns=self.discrete_columns).reset_index(drop=True)
         fake_data_encoded = pd.concat([fake_data_encoded, pd.DataFrame(fake_cat_encoded, columns=fake_cat_columns)], axis=1)
     
-        test_funcs = {
-            "mahalanobis": self._mahalanobis_test,
-            "ks": self._ks_test,
-            "wasserstein_distance": self._wasserstein_test,
-            "energy_distance": self._energy_distance_test,
-            "two_sample_classifier": self._two_sample_classifier_test,
-        }
-
-        if test not in test_funcs:
-            raise ValueError(f"Unknown test '{test}'. Available: {list(test_funcs)}")
         if test == "two_sample_classifier":
             return test_funcs[test](real_data_encoded, fake_data_encoded, classifier)
         
@@ -173,13 +196,17 @@ class BaseModel(ABC):
 
 
     ##### PRIVATE FUNCTIONS #####
-    def _transform_data(self, data, discrete_columns):
+    def _transform_data(self, data: pd.DataFrame, discrete_columns: list[str]) -> pd.DataFrame:
+        if not isinstance(data, pd.DataFrame):
+            raise TypeError("data must be a pandas DataFrame.")
+        if not isinstance(discrete_columns, list[str]):
+            raise TypeError("discrete_columns must be a list of column names.")
         transformer = DataTransformer()
         transformer.fit(data, discrete_columns)
         self.transformer = transformer
         return transformer.transform(data)
     
-    def _create_table_metadata(self, data):
+    def _create_table_metadata(self, data: pd.DataFrame):
         if self.metadata["table"]["columns"] == {}:
             for column in data.columns:
                 if column in self.cont_columns:
@@ -205,7 +232,7 @@ class BaseModel(ABC):
         if self.metadata["table"]["correlations"] == {}:
             self.metadata["table"]["correlations"] = data[self.cont_columns].corr().to_dict()
 
-    def _mahalanobis_test(self, real: pd.DataFrame, fake: pd.DataFrame) -> pd.DataFrame:
+    def _mahalanobis_test(self, real: pd.DataFrame, fake: pd.DataFrame) -> dict:
         cov = np.cov(real.values, rowvar=False)
         inv_cov = np.linalg.pinv(cov)
         distance = mahalanobis(real.mean().values, fake.mean().values, inv_cov)
@@ -235,7 +262,7 @@ class BaseModel(ABC):
             }
         }
 
-    def _wasserstein_test(self, real: pd.DataFrame, fake: pd.DataFrame) -> pd.DataFrame:
+    def _wasserstein_test(self, real: pd.DataFrame, fake: pd.DataFrame) -> dict:
         results = []
         for col in real.columns:
             dist = wasserstein_distance(real[col], fake[col])
@@ -246,7 +273,7 @@ class BaseModel(ABC):
         return {'statistic': 'wasserstein', "value": results}
 
 
-    def _energy_distance_test(self, real: pd.DataFrame, fake: pd.DataFrame) -> pd.DataFrame:
+    def _energy_distance_test(self, real: pd.DataFrame, fake: pd.DataFrame) -> dict:
         print(fake.shape, real.shape)
         a = cdist(real.values, real.values).mean()
         b = cdist(fake.values, fake.values).mean()
@@ -255,9 +282,7 @@ class BaseModel(ABC):
         return {'statistic': 'energy', 'value': energy_dist}
 
     
-    def _two_sample_classifier_test(self, real: pd.DataFrame, fake: pd.DataFrame, classifier: ClassifierMixin) -> pd.DataFrame:
-        if classifier is None or not isinstance(classifier, ClassifierMixin):
-            raise ValueError("A valid scikit-learn classifier instance must be provided.")
+    def _two_sample_classifier_test(self, real: pd.DataFrame, fake: pd.DataFrame, classifier: ClassifierMixin) -> dict:
         X = pd.concat([real, fake], axis=0).values
         y = np.concatenate([
             np.ones(len(real)), 

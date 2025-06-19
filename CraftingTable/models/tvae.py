@@ -26,8 +26,23 @@ class TVAE(parentTVAE, BaseModel):
         return f"TVAE(embedding_dim={self.embedding_dim}, compress_dims={self.compress_dims}, decompress_dims={self.decompress_dims})"
 
     
-    def fit(self, train_data, discrete_columns, l2scale=1e-5, batch_size=500, 
-            epochs=300, loss_factor=2, device='cuda', verbose=False, save_final_model=False, save_folder='saves'):
+    def fit(self, 
+            train_data: pd.DataFrame, 
+            discrete_columns: list[str], 
+            l2scale: float = 1e-5, 
+            batch_size: float = 500, 
+            epochs: int = 300, 
+            loss_factor: int = 2, 
+            device: str = 'cuda', 
+            verbose: bool = False, 
+            save_final_model: bool = False, 
+            save_folder: str = 'saves'
+            ):
+        if not isinstance(train_data, pd.DataFrame):
+            raise TypeError("train_data must bea a pandas DataFrame.")
+        if not isinstance(discrete_columns, list) and all(isinstance(col, str) and col in train_data.columns for col in discrete_columns):
+            raise TypeError("discrete_columns must be a list of column names.")
+        
         self.l2scale = l2scale
         self.batch_size = batch_size
         self.epochs = epochs
@@ -134,7 +149,11 @@ class TVAE(parentTVAE, BaseModel):
         if save_final_model:
             self.save(os.path.join(save_folder, 'tvae.pt'))
 
-    def sample(self, num_saples):
+    def sample(self, 
+               num_saples: int
+               ):
+        if self.metadata['model']['fit_settings']['times_fitted'] == 0:
+            raise RuntimeError("Model has not been fitted yet. Please fit the model before sampling.")
         return parentTVAE.sample(self, num_saples)
     
     

@@ -70,12 +70,6 @@ class TabSyn(BaseModel):
         save_final_model=False,
         save_folder='saves'
     ):
-        if is_available() and device == 'cuda':
-            device = 'cuda'
-            if verbose:
-                print("Using CUDA for training.")
-        else:
-            device = 'cpu'
 
         if not os.path.exists(save_folder):
             os.makedirs(save_folder)
@@ -260,12 +254,6 @@ class TabSyn(BaseModel):
         save_final_model=False,
         save_folder='saves'
     ):
-        if is_available() and device == 'cuda':
-            device = 'cuda'
-            if verbose:
-                print("Using CUDA for training.")
-        else:
-            device = 'cpu'
             
         if not os.path.exists(save_folder):
             os.makedirs(save_folder)

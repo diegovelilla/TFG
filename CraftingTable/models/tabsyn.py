@@ -293,10 +293,6 @@ class TabSyn(BaseModel):
 
         self.denoise_fn = MLPDiffusion(in_dim, self.dim_t).to(device)
 
-        num_params = sum(p.numel() for p in self.denoise_fn.parameters())
-        if verbose:
-            print("the number of parameters", num_params)
-
         self.model = Model(denoise_fn = self.denoise_fn, hid_dim = train_z.shape[1]).to(device)
 
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, weight_decay=weight_decay)

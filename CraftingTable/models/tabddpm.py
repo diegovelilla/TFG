@@ -5,9 +5,9 @@ import pandas as pd
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
 from ctgan.data_transformer import DataTransformer
-from .tabddpm.utils_train import get_model
-from .tabddpm.gaussian_multinomial_diffsuion import GaussianMultinomialDiffusion
-from .tabddpm.train import Trainer
+from .tabddpm_utils.utils_train import get_model
+from .tabddpm_utils.gaussian_multinomial_diffsuion import GaussianMultinomialDiffusion
+from .tabddpm_utils.train import Trainer
 from .base import BaseModel
 from datetime import datetime
 from torch.cuda import is_available

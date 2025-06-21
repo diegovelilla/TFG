@@ -43,7 +43,7 @@ class TabSyn(BaseModel):
         self.num_layers = num_layers_vae
         self.dim_t = dim_t_mlp
         self.metadata['model']['model_type'] = "TabSyn"
-        self.metadata['model']['hyperparmeters'] = {"num_layers_vae": num_layers_vae,
+        self.metadata['model']['hyperparameters'] = {"num_layers_vae": num_layers_vae,
                                                     "factor_vae": factor_vae,
                                                     "n_head_vae": n_head_vae,
                                                     "d_token_vae": d_token_vae,

@@ -18,7 +18,7 @@ class TVAE(parentTVAE, BaseModel):
         self.compress_dims = compress_dims
         self.decompress_dims = decompress_dims
         self.metadata['model']['model_type'] = "TVAE"
-        self.metadata['model']['hyperparmeters'] = {"embeddig_dim": embedding_dim, 
+        self.metadata['model']['hyperparameters'] = {"embeddig_dim": embedding_dim, 
                                                     "compress_dims": compress_dims, 
                                                     "decompress_dims": decompress_dims}
         

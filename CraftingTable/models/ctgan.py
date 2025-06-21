@@ -15,7 +15,7 @@ class CTGAN(parentCTGAN, BaseModel):
         self.generator_dim = generator_dim
         self.discriminator_dim = discriminator_dim
         self.metadata['model']['model_type'] = "CTGAN"
-        self.metadata['model']['hyperparmeters'] = {"embeddig_dim": embedding_dim, 
+        self.metadata['model']['hyperparameters'] = {"embeddig_dim": embedding_dim, 
                                                     "generator_dim": generator_dim, 
                                                     "discriminator_dim": discriminator_dim}
         

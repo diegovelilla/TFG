@@ -96,6 +96,8 @@ class TabDDPM(BaseModel):
                 print("Using CUDA for training.")
         else:
             device = 'cpu'
+            if verbose:
+                print("Using CPU for training.")
 
         dataset_dict = self._make_dataset(
             train_data,

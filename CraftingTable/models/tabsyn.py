@@ -155,7 +155,7 @@ class TabSyn(BaseModel):
         beta = max_beta
 
         loss_records = []
-        pbar = tqdm(range(num_epochs))
+        pbar = tqdm(range(num_epochs), disable=(not verbose))
         for epoch in pbar:
 
             curr_loss_gauss = 0.0
@@ -373,6 +373,15 @@ class TabSyn(BaseModel):
         if not isinstance(discrete_columns, list) and all(isinstance(col, str) and col in train_data.columns for col in discrete_columns):
             raise TypeError("discrete_columns must be a list of column names.")
         
+        if is_available() and device == 'cuda':
+            device = 'cuda'
+            if verbose:
+                print("Using CUDA for training.")
+        else:
+            device = 'cpu'
+            if verbose:
+                print("Using CPU for training.")
+                
         self.discrete_columns = discrete_columns
         self.cont_columns = list(set(train_data.columns) - set(discrete_columns))
         X_num = self._transform_data(train_data, discrete_columns)

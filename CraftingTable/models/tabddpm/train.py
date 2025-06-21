@@ -40,7 +40,7 @@ class Trainer:
         return loss_multi, loss_gauss
 
     def run_loop(self, verbose):
-        pbar = tqdm(range(self.steps))
+        pbar = tqdm(range(self.steps), disable=(not verbose))
         for step in pbar:
 
             try:

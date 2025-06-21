@@ -199,7 +199,7 @@ class BaseModel(ABC):
     def _transform_data(self, data: pd.DataFrame, discrete_columns: list[str]) -> pd.DataFrame:
         if not isinstance(data, pd.DataFrame):
             raise TypeError("data must be a pandas DataFrame.")
-        if not isinstance(discrete_columns, list[str]):
+        if not isinstance(discrete_columns, list) and all(isinstance(col, str) and col in train_data.columns for col in discrete_columns):
             raise TypeError("discrete_columns must be a list of column names.")
         transformer = DataTransformer()
         transformer.fit(data, discrete_columns)

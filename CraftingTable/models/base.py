@@ -274,7 +274,6 @@ class BaseModel(ABC):
 
 
     def _energy_distance_test(self, real: pd.DataFrame, fake: pd.DataFrame) -> dict:
-        print(fake.shape, real.shape)
         a = cdist(real.values, real.values).mean()
         b = cdist(fake.values, fake.values).mean()
         c = cdist(real.values, fake.values).mean()

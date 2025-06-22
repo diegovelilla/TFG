@@ -167,7 +167,7 @@ class BaseModel(ABC):
             raise TypeError("real must be a pandas DataFrame.")
         if fake_data and not isinstance(fake_data, pd.DataFrame):
             raise TypeError("fake must be a pandas DataFrame.")
-        if real_data.shape[1] != fake_data.shape[1]:
+        if fake_data and real_data.shape[1] != fake_data.shape[1]:
             raise ValueError("Real and fake datasets must have the same number of features.")
             
         oh_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)

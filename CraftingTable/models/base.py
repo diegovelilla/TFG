@@ -165,9 +165,9 @@ class BaseModel(ABC):
                 raise ValueError("A valid scikit-learn classifier instance must be provided.")
         if not isinstance(real_data, pd.DataFrame):
             raise TypeError("real must be a pandas DataFrame.")
-        if fake_data and not isinstance(fake_data, pd.DataFrame):
+        if fake_data is not None and not isinstance(fake_data, pd.DataFrame):
             raise TypeError("fake must be a pandas DataFrame.")
-        if fake_data and real_data.shape[1] != fake_data.shape[1]:
+        if fake_data is not None and real_data.shape[1] != fake_data.shape[1]:
             raise ValueError("Real and fake datasets must have the same number of features.")
             
         oh_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)

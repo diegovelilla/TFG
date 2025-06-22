@@ -160,7 +160,7 @@ class BaseModel(ABC):
 
         if test not in test_funcs:
             raise ValueError(f"Unknown test '{test}'. Available: {list(test_funcs)}")
-        if test != "two_sample_classifier":
+        if test == "two_sample_classifier":
             if classifier is None or not isinstance(classifier, ClassifierMixin):
                 raise ValueError("A valid scikit-learn classifier instance must be provided.")
         if not isinstance(real_data, pd.DataFrame):
